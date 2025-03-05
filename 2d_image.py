@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Path to the IMG file in the "source/test" subdirectory
-file_path = "source/test/o_01867_optim_no-wind_depth_resamp.img"
+file_path = "source/test/o_01867_MOLA_shaded_resamp.img"
 
 # Read the raw data into a NumPy array (UInt16, little-endian)
 data = np.fromfile(file_path, dtype=np.uint16)
