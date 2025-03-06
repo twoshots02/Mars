@@ -1,12 +1,13 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import multiprocessing as mp
 import time
 
 start_time = time.time()
 
 img_file = "source/test/o_01867_optim_no-wind_depth_resamp.img"
-parquet_file = "source/test/o_01867_corrected.parquet"
+parquet_file = "source/test/o_01867_parallel.parquet"
 
 num_channels = 2
 num_lines = 4096
@@ -19,49 +20,46 @@ computed_data = (data * 0.4) + 40
 data_time = time.time() - data_start
 
 ground_start = time.time()
-threshold_dB = 60
+threshold_dB = 50
 ground_levels = np.argmax(computed_data[0] > threshold_dB, axis=0)
 ground_levels = np.where(ground_levels == 0, np.argmax(computed_data[0] > 40.4, axis=0), ground_levels)
 ground_levels = np.where(ground_levels == 0, 0, ground_levels)
 print(f"Detected ground levels range: {ground_levels.min()} to {ground_levels.max()}")
 ground_time = time.time() - ground_start
 
-build_start = time.time()
-channels_list = []
-lines_list = []
-samples_list = []
-computed_power_list = []
-depth_below_ground_list = []
-
-for channel in range(num_channels):
-    for sample in range(num_samples):
-        if sample % 1000 == 0:
-            print(f"Processing Channel {channel + 1}, Sample {sample}")
+def process_sample(sample):
+    sample_data = []
+    for channel in range(num_channels):
         ground_line = ground_levels[sample]
-        column_data = computed_data[channel, ground_line:, sample]
-        if np.any(column_data > 41):
-            last_reflection_idx = np.max(np.where(column_data > 41)[0])
-            last_line = ground_line + last_reflection_idx
-        else:
+        if ground_line >= num_lines:
             continue
+        column_data = computed_data[channel, ground_line:, sample]
+        if not np.any(column_data > 45):  # Increased to 45 dB
+            continue
+        print(f"Processing Sample {sample}, Channel {channel + 1}, Ground Line {ground_line}")  # Debug
+        last_reflection_idx = np.max(np.where(column_data > 45)[0])
+        last_line = ground_line + last_reflection_idx
         
         subsurface_lines = np.arange(ground_line, last_line + 1)
-        num_subsurface_lines = len(subsurface_lines)
-        
-        channels_list.extend([channel + 1] * num_subsurface_lines)
-        samples_list.extend([sample] * num_subsurface_lines)
-        lines_list.extend(subsurface_lines)
-        
-        computed_power_list.extend(computed_data[channel, ground_line:last_line + 1, sample])
-        depth_below_ground_list.extend((subsurface_lines - ground_line) * depth_per_pixel)
+        for line in subsurface_lines:
+            depth_below_ground = (line - ground_line) * depth_per_pixel
+            if depth_below_ground > 5000:
+                continue
+            sample_data.append((
+                channel + 1,
+                line,
+                sample,
+                computed_data[channel, line, sample],
+                depth_below_ground
+            ))
+    return sample_data
 
-df = pd.DataFrame({
-    "Channel": channels_list,
-    "Line": lines_list,
-    "Sample": samples_list,
-    "Computed Power (dB)": computed_power_list,
-    "Depth Below Ground (m)": depth_below_ground_list
-})
+build_start = time.time()
+with mp.Pool(processes=min(mp.cpu_count(), 8)) as pool:
+    results = pool.map(process_sample, range(num_samples))
+
+flattened_results = [row for sample in results for row in sample]
+df = pd.DataFrame(flattened_results, columns=["Channel", "Line", "Sample", "Computed Power (dB)", "Depth Below Ground (m)"])
 build_time = time.time() - build_start
 
 save_start = time.time()
@@ -70,22 +68,33 @@ save_time = time.time() - save_start
 
 total_time = time.time() - start_time
 
-print(f"✅ Corrected dataset saved: {parquet_file}")
+print(f"✅ Parallelized dataset saved: {parquet_file}")
 print(f"DataFrame shape: {df.shape}")
-print(df[df['Sample'] == 1].head(10))  # Check a sample with data
+print(df[df['Sample'] == 1].head(10))  # Check Sample 1
 print(f"\nTiming Breakdown:")
 print(f"  Data Loading and Conversion: {data_time:.2f} seconds")
 print(f"  Ground Detection: {ground_time:.2f} seconds")
-print(f"  DataFrame Building: {build_time:.2f} seconds")
+print(f"  DataFrame Building (Parallelized): {build_time:.2f} seconds")
 print(f"  Parquet Save: {save_time:.2f} seconds")
 print(f"  Total Time: {total_time:.2f} seconds ({total_time / 60:.2f} minutes)")
 
-# Debug: Plot Sample 0, Channel 0 (non-blocking)
-plt.plot(computed_data[0, :, 0], label="Channel 1, Sample 0")
-plt.axhline(60, color="r", linestyle="--", label="Threshold 60 dB")
-plt.axhline(40.4, color="g", linestyle="--", label="Noise Floor 40.4 dB")
-plt.xlabel("Line (Depth)")
-plt.ylabel("Computed Power (dB)")
+# Visualization
+plt.figure(figsize=(12, 5))
+max_depths = df.groupby("Sample")["Depth Below Ground (m)"].max()
+plt.plot(max_depths, label="Max Depth per Sample", color="b")
+plt.axhline(y=max_depths.mean(), color="r", linestyle="--", label=f"Mean Depth ({max_depths.mean():.2f} m)")
+plt.axhline(y=5000, color="g", linestyle="--", label="MARSIS Limit (5 km)")
+plt.xlabel("Sample Index")
+plt.ylabel("Max Depth Below Ground (m)")
+plt.title("Max Depth Below Ground Per Sample")
 plt.legend()
-plt.ion()  # Interactive mode, non-blocking
+
+# Depth histogram
+plt.figure(figsize=(8, 5))
+plt.hist(df["Depth Below Ground (m)"], bins=50, color="b", alpha=0.7)
+plt.axvline(x=5000, color="g", linestyle="--", label="MARSIS Limit (5 km)")
+plt.xlabel("Depth Below Ground (m)")
+plt.ylabel("Frequency")
+plt.title("Depth Distribution")
+plt.legend()
 plt.show()

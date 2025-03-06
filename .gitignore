@@ -1,5 +1,7 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+*.parquet
+*.png
 *.py[cod]
 *$py.class
 source/
