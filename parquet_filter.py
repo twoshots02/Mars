@@ -20,12 +20,29 @@ computed_data = (data * 0.4) + 40
 data_time = time.time() - data_start
 
 ground_start = time.time()
-threshold_dB = 50
+threshold_dB = 45  # Lowered to match expected surface intensity
 ground_levels = np.argmax(computed_data[0] > threshold_dB, axis=0)
-ground_levels = np.where(ground_levels == 0, np.argmax(computed_data[0] > 40.4, axis=0), ground_levels)
+ground_levels = np.where(ground_levels == 0, np.argmax(computed_data[0] > 40, axis=0), ground_levels)  # Noise floor
 ground_levels = np.where(ground_levels == 0, 0, ground_levels)
-print(f"Detected ground levels range: {ground_levels.min()} to {ground_levels.max()}")
-ground_time = time.time() - ground_start
+
+# Validation
+max_allowed_line = num_lines - 1  # 4095
+invalid_ground_indices = np.where(ground_levels > max_allowed_line)[0]
+if len(invalid_ground_indices) > 0:
+    print(f"Warning: {len(invalid_ground_indices)} ground levels exceed {max_allowed_line}")
+    ground_levels[ground_levels > max_allowed_line] = max_allowed_line
+    print(f"Capped invalid ground levels to {max_allowed_line}.")
+
+# Debug and range
+print(f"Ground levels range: {ground_levels.min()} to {ground_levels.max()}")
+print(f"First 10 ground levels: {ground_levels[:10]}")
+
+# Optional: Plot to verify
+plt.plot(ground_levels)
+plt.xlabel('Sample Number')
+plt.ylabel('Ground Level (Line)')
+plt.title('Detected Ground Levels Across Samples')
+plt.show()
 
 def process_sample(sample):
     sample_data = []
@@ -34,17 +51,18 @@ def process_sample(sample):
         if ground_line >= num_lines:
             continue
         column_data = computed_data[channel, ground_line:, sample]
-        if not np.any(column_data > 45):  # Increased to 45 dB
-            continue
-        print(f"Processing Sample {sample}, Channel {channel + 1}, Ground Line {ground_line}")  # Debug
-        last_reflection_idx = np.max(np.where(column_data > 45)[0])
-        last_line = ground_line + last_reflection_idx
+        # Remove the initial filter to include all samples
+        max_depth_idx = int(5000 / depth_per_pixel)  # 186
+        # Find all reflections, but proceed even if none > 40 dB
+        reflection_indices = np.where(column_data > 40)[0]
+        if len(reflection_indices) > 0:
+            reflection_indices = reflection_indices[reflection_indices <= max_depth_idx]
+        else:
+            reflection_indices = [0]  # Default to ground line if no reflections
+        subsurface_lines = ground_line + reflection_indices
         
-        subsurface_lines = np.arange(ground_line, last_line + 1)
         for line in subsurface_lines:
             depth_below_ground = (line - ground_line) * depth_per_pixel
-            if depth_below_ground > 5000:
-                continue
             sample_data.append((
                 channel + 1,
                 line,
@@ -52,6 +70,17 @@ def process_sample(sample):
                 computed_data[channel, line, sample],
                 depth_below_ground
             ))
+        # Optionally include all lines up to max depth for completeness
+        for line in range(ground_line + 1, min(ground_line + max_depth_idx + 1, num_lines)):
+            if line not in subsurface_lines:
+                depth_below_ground = (line - ground_line) * depth_per_pixel
+                sample_data.append((
+                    channel + 1,
+                    line,
+                    sample,
+                    computed_data[channel, line, sample],
+                    depth_below_ground
+                ))
     return sample_data
 
 build_start = time.time()
@@ -68,33 +97,4 @@ save_time = time.time() - save_start
 
 total_time = time.time() - start_time
 
-print(f"✅ Parallelized dataset saved: {parquet_file}")
-print(f"DataFrame shape: {df.shape}")
-print(df[df['Sample'] == 1].head(10))  # Check Sample 1
-print(f"\nTiming Breakdown:")
-print(f"  Data Loading and Conversion: {data_time:.2f} seconds")
-print(f"  Ground Detection: {ground_time:.2f} seconds")
-print(f"  DataFrame Building (Parallelized): {build_time:.2f} seconds")
-print(f"  Parquet Save: {save_time:.2f} seconds")
-print(f"  Total Time: {total_time:.2f} seconds ({total_time / 60:.2f} minutes)")
 
-# Visualization
-plt.figure(figsize=(12, 5))
-max_depths = df.groupby("Sample")["Depth Below Ground (m)"].max()
-plt.plot(max_depths, label="Max Depth per Sample", color="b")
-plt.axhline(y=max_depths.mean(), color="r", linestyle="--", label=f"Mean Depth ({max_depths.mean():.2f} m)")
-plt.axhline(y=5000, color="g", linestyle="--", label="MARSIS Limit (5 km)")
-plt.xlabel("Sample Index")
-plt.ylabel("Max Depth Below Ground (m)")
-plt.title("Max Depth Below Ground Per Sample")
-plt.legend()
-
-# Depth histogram
-plt.figure(figsize=(8, 5))
-plt.hist(df["Depth Below Ground (m)"], bins=50, color="b", alpha=0.7)
-plt.axvline(x=5000, color="g", linestyle="--", label="MARSIS Limit (5 km)")
-plt.xlabel("Depth Below Ground (m)")
-plt.ylabel("Frequency")
-plt.title("Depth Distribution")
-plt.legend()
-plt.show()
