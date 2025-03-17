@@ -1,0 +1,23 @@
+Needed in Master file:
+
+UniqueKey - individual number assigned to each reflection
+Orbit - 5 digit (including leading zero on 4-digit numbers such as 01867) from the file name
+Frame - may be thousands of records per frame
+Latitude
+Longitude
+Altitude
+Depth_Below_Ground_m
+Raw_Power
+Channel_1
+Channel_2
+Delay_1
+Delay_2
+Channel_1_TEC1
+Channel_1_TEC2
+Channel_2_TEC1
+Channel_2_TEC2
+Time
+Sample
+Line
+MOLA_Elevation - previously MOLA_Elevation_400
+Above_Below_Ellipsoid_m - previously Depth Above Ellipsoid (m)

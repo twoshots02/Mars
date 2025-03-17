@@ -1,6 +1,41 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+"""
+This script processes a MOLA shaded relief image, converts it to a long-format DataFrame, 
+saves it as a Parquet file, and displays the image using matplotlib.
+
+Steps:
+1. Reads the raw data from an IMG file into a NumPy array.
+2. Reshapes the data to the specified dimensions.
+3. Converts the reshaped data into a long-format pandas DataFrame.
+4. Saves the DataFrame to a Parquet file with Snappy compression.
+5. Displays the image using matplotlib for validation.
+6. Prints summary statistics of the elevation data.
+
+File Paths:
+- Input IMG file: "source/test/o_01867_MOLA_shaded_resamp.img"
+- Output Parquet file: "source/test/o_01867_mola_resamp.parquet"
+
+Data:
+- The raw data is read as UInt16, little-endian.
+- The data is reshaped to dimensions (800, 11220).
+
+DataFrame Columns:
+- "Line": The line index of the image.
+- "Sample": The sample index of the image.
+- "Elevation": The elevation value (pixel value) from the image.
+
+Summary Statistics:
+- Minimum elevation value.
+- Maximum elevation value.
+- Shape of the DataFrame.
+
+Visualization:
+- Displays the image using a grayscale colormap.
+- Adds a colorbar to indicate elevation (pixel value).
+"""
+
 
 # Path to the IMG file in the "source/test" subdirectory
 file_path = "source/test/o_01867_MOLA_shaded_resamp.img"
